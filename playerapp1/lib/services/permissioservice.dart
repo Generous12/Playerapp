@@ -5,6 +5,11 @@ class PermissionService {
   static Future<bool> solicitarPermisosAudio() async {
     if (!Platform.isAndroid) return true;
 
+    // Solicitar permiso de notificaciones para reproducción en segundo plano (Android 13+)
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+
     final audioStatus = await Permission.audio.request();
     if (audioStatus.isGranted) return true;
 

@@ -19,9 +19,22 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onOpen: (db) async {
+        try {
+          await db.execute(
+            'ALTER TABLE canciones ADD COLUMN en_general INTEGER DEFAULT 1',
+          );
+        } catch (_) {}
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_canciones_titulo ON canciones(titulo)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_canciones_album ON canciones(id_album)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_canciones_posicion ON canciones(posicion)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_canciones_ruta ON canciones(ruta_archivo)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_favoritos_posicion ON favoritos(posicion)');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial_reproduccion(fecha_reproduccion)');
       },
       onCreate: _createDB,
     );
@@ -42,7 +55,8 @@ class DatabaseHelper {
         tamano_archivo INTEGER,
         fecha_agregado INTEGER,
         numero_pista INTEGER,
-        year INTEGER
+        year INTEGER,
+        en_general INTEGER DEFAULT 1
       )
     ''');
 

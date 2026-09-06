@@ -5,8 +5,8 @@ import 'package:playerapp1/clases/favorito.dart';
 import 'package:playerapp1/colores/appcolors.dart';
 import 'package:playerapp1/notifiers/favoritonotifier.dart';
 import 'package:playerapp1/services/musicservice.dart';
+import 'package:playerapp1/widgets/diseños/app_dropdown_menu.dart';
 import 'package:playerapp1/widgets/diseños/marqueeanimacion.dart';
-import 'package:playerapp1/widgets/diseños/modalamplio2.dart';
 import 'package:playerapp1/widgets/diseños/showdialog.dart';
 import 'package:playerapp1/widgets/diseños/text.dart';
 
@@ -82,6 +82,7 @@ class SongTile extends StatelessWidget {
           ),
           child: ListTile(
             onTap: () async {
+              FocusScope.of(context).unfocus();
               final realIndex = canciones.indexWhere((e) => e.id == cancion.id);
               if (realIndex != -1) {
                 await MusicService.instance.playPlaylist(
@@ -187,82 +188,97 @@ class SongTile extends StatelessWidget {
                     FavoritosNotifier.instance.actualizar();
                   },
                 ),
-                IconButton(
+                AppDropdownMenu<String>(
                   icon: Icon(
                     LucideIcons.ellipsisVertical,
                     size: 18,
                     color: isDark ? Colors.white54 : Colors.black45,
                   ),
-                  onPressed: () {
-                    ActionBottomSheet.show(
-                      context,
-                      songTitle: cancion.titulo,
-                      songId: cancion.id!,
-                      actions: [
-                        ActionItem(
-                          title: "Reproducir",
-                          icon: LucideIcons.play,
-                          onTap: () async {
-                            final realIndex = cancionesFiltradas.indexWhere(
-                              (e) => e.id == cancion.id,
-                            );
-                            if (realIndex == -1) return;
-                            await MusicService.instance.playPlaylist(
-                              canciones,
-                              realIndex,
-                              context: "general",
-                            );
-                          },
-                        ),
-                        ActionItem(
-                          title: "Reproducir siguiente",
-                          icon: LucideIcons.listStart,
-                          onTap: () async {
-                            await MusicService.instance.playNext(cancion);
-                          },
-                        ),
-                        ActionItem(
-                          title: "Añadir a la cola",
-                          icon: LucideIcons.listPlus,
-                          onTap: () async {
-                            await MusicService.instance.addToQueue(cancion);
-                          },
-                        ),
-                        ActionItem(
-                          title: "Asignar a Carpeta",
-                          icon: LucideIcons.folderPlus,
-                          onTap: () async {
-                            await onAsignarCancionAAlbum(cancion.id!, 1);
-                          },
-                        ),
-                        ActionItem(
-                          title: "Eliminar de biblioteca",
-                          icon: LucideIcons.trash2,
-                          textColor: AppColors.danger,
-                          iconColor: AppColors.danger,
-                          darkTextColor: AppColors.danger,
-                          darkIconColor: AppColors.danger,
-                          onTap: () async {
-                            if (cancion.id == null) return;
-                            final confirmar = await CustomDialog.show(
-                              context: context,
-                              title: "Eliminar canción",
-                              message:
-                                  "¿Estás seguro de que deseas eliminar '${cancion.titulo}' de la biblioteca?",
-                              confirmText: "Eliminar",
-                              cancelText: "Cancelar",
-                              confirmButtonColor: AppColors.danger,
-                            );
+                  items: [
+                    AppDropdownItem(
+                      value: "play",
+                      text: "Reproducir",
+                      icon: LucideIcons.play,
+                      iconColor: AppColors.primary,
+                    ),
+                    AppDropdownItem(
+                      value: "next",
+                      text: "Reproducir siguiente",
+                      icon: LucideIcons.listStart,
+                      iconColor: AppColors.primary,
+                    ),
+                    AppDropdownItem(
+                      value: "queue",
+                      text: "Añadir a la cola",
+                      icon: LucideIcons.listPlus,
+                      iconColor: AppColors.primary,
+                    ),
+                    AppDropdownItem(
+                      value: "assign",
+                      text: "Asignar a Carpeta",
+                      icon: LucideIcons.folderPlus,
+                      iconColor: AppColors.accent,
+                    ),
+                    AppDropdownItem(
+                      value: "rename",
+                      text: "Renombrar canción",
+                      icon: LucideIcons.pencil,
+                    ),
+                    AppDropdownItem(
+                      value: "delete",
+                      text: "Eliminar canción",
+                      icon: LucideIcons.trash2,
+                      isDestructive: true,
+                      isDividerBefore: true,
+                    ),
+                  ],
+                  onSelected: (value) async {
+                    if (value == "play") {
+                      final realIndex = cancionesFiltradas.indexWhere(
+                        (e) => e.id == cancion.id,
+                      );
+                      if (realIndex == -1) return;
+                      await MusicService.instance.playPlaylist(
+                        canciones,
+                        realIndex,
+                        context: "general",
+                      );
+                    } else if (value == "next") {
+                      await MusicService.instance.playNext(cancion);
+                    } else if (value == "queue") {
+                      await MusicService.instance.addToQueue(cancion);
+                    } else if (value == "assign") {
+                      await onAsignarCancionAAlbum(cancion.id!, 1);
+                    } else if (value == "rename") {
+                      if (cancion.id == null) return;
+                      final res = await CustomDialog.showRenameSongDialog(
+                        context: context,
+                        currentTitle: cancion.titulo,
+                      );
+                      if (res != null && res.newTitle.isNotEmpty) {
+                        await repo.renombrar(
+                          cancion.id!,
+                          res.newTitle,
+                          renombrarArchivoFisico: res.renamePhysicalFile,
+                        );
+                      }
+                    } else if (value == "delete") {
+                      if (cancion.id == null) return;
+                      final opcion = await CustomDialog.showDeleteSongDialog(
+                        context: context,
+                        songTitle: cancion.titulo,
+                        isFromFolder: cancion.idAlbum != null,
+                      );
 
-                            if (confirmar != true) return;
-                            await repo.eliminar(cancion.id!);
-                            await MusicService.instance.removeSongFromPlaylist(
-                              cancion.id!,
-                            );
-                          },
-                        ),
-                      ],
-                    );
+                      if (opcion == null || opcion == DeleteOption.cancel) return;
+
+                      final borrarFisico = (opcion == DeleteOption.libraryAndStorage);
+
+                      await MusicService.instance.removeSongFromPlaylist(
+                        cancion.id!,
+                      );
+                      await repo.eliminarDeGeneral(cancion, borrarArchivoFisico: borrarFisico);
+                    }
                   },
                 ),
               ],

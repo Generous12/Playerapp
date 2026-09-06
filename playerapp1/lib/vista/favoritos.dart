@@ -3,10 +3,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:playerapp1/clases/canciones.dart';
 import 'package:playerapp1/clases/favorito.dart';
 import 'package:playerapp1/colores/appcolors.dart';
+import 'package:playerapp1/notifiers/cancionesnotifier.dart';
 import 'package:playerapp1/notifiers/favoritonotifier.dart';
 import 'package:playerapp1/services/musicservice.dart';
+import 'package:playerapp1/widgets/dise%C3%B1os/app_dropdown_menu.dart';
 import 'package:playerapp1/widgets/dise%C3%B1os/marqueeanimacion.dart';
-import 'package:playerapp1/widgets/dise%C3%B1os/modalamplio2.dart';
+import 'package:playerapp1/widgets/dise%C3%B1os/showdialog.dart';
 import 'package:playerapp1/widgets/dise%C3%B1os/text.dart';
 
 class FavoritosScreen extends StatefulWidget {
@@ -33,6 +35,7 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
     super.initState();
     cargarFavoritos();
     FavoritosNotifier.instance.addListener(_onFavoritosChanged);
+    CancionesNotifier.instance.addListener(_onFavoritosChanged);
   }
 
   void _onFavoritosChanged() {
@@ -44,6 +47,7 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
   void dispose() {
     _searchController.dispose();
     FavoritosNotifier.instance.removeListener(_onFavoritosChanged);
+    CancionesNotifier.instance.removeListener(_onFavoritosChanged);
     super.dispose();
   }
 
@@ -52,34 +56,38 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
       setState(() => _isLoading = true);
     }
 
-    final data = await _favoritoDao.getCancionesFavoritas();
+    try {
+      final data = await _favoritoDao.getCancionesFavoritas();
 
-    canciones =
-        data
-            .map(
-              (e) =>
-                  Cancion.fromMap({...e, 'posicion': e['fav_posicion'] ?? 0}),
-            )
-            .toList()
-          ..sort((a, b) => a.posicion.compareTo(b.posicion));
+      canciones =
+          data
+              .map(
+                (e) =>
+                    Cancion.fromMap({...e, 'posicion': e['fav_posicion'] ?? 0}),
+              )
+              .toList()
+            ..sort((a, b) => a.posicion.compareTo(b.posicion));
 
-    totalCanciones = canciones.length;
+      totalCanciones = canciones.length;
 
-    totalMB = canciones.fold(
-      0,
-      (sum, item) => sum + ((item.tamanoArchivo ?? 0) / (1024 * 1024)),
-    );
+      totalMB = canciones.fold(
+        0,
+        (sum, item) => sum + ((item.tamanoArchivo ?? 0) / (1024 * 1024)),
+      );
 
-    if (filtroActivo) {
-      cancionesFiltradas = canciones.where((c) {
-        return c.titulo.toLowerCase().contains(textoBusqueda.toLowerCase());
-      }).toList();
-    } else {
-      cancionesFiltradas = List.from(canciones);
-    }
-
-    if (mounted) {
-      setState(() => _isLoading = false);
+      if (filtroActivo) {
+        cancionesFiltradas = canciones.where((c) {
+          return c.titulo.toLowerCase().contains(textoBusqueda.toLowerCase());
+        }).toList();
+      } else {
+        cancionesFiltradas = List.from(canciones);
+      }
+    } catch (e) {
+      debugPrint("Error al cargar favoritos: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -119,6 +127,7 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
   }
 
   void _reproducirTodo({bool aleatorio = false}) async {
+    FocusScope.of(context).unfocus();
     if (canciones.isEmpty) return;
     final playlist = List<Cancion>.from(canciones);
     if (aleatorio) {
@@ -134,22 +143,27 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: ValueListenableBuilder<int?>(
-          valueListenable: MusicService.instance.currentSongIdNotifier,
-          builder: (context, currentId, _) {
-            return _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(color: AppColors.accent),
-                  )
-                : !hayCanciones
-                ? _buildEmptyState(context, theme, isDark)
-                : Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    child: ReorderableListView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.only(bottom: 120),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: ValueListenableBuilder<int?>(
+            valueListenable: MusicService.instance.currentSongIdNotifier,
+            builder: (context, currentId, _) {
+              return _isLoading
+                  ? Center(
+                      child: CircularProgressIndicator(color: AppColors.accent),
+                    )
+                  : !hayCanciones
+                  ? _buildEmptyState(context, theme, isDark)
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: ReorderableListView.builder(
+                        physics: const BouncingScrollPhysics(),
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: const EdgeInsets.only(bottom: 120),
                       header: _buildHeader(context, theme, isDark),
                       itemCount: cancionesFiltradas.length,
                       buildDefaultDragHandles: !filtroActivo,
@@ -239,6 +253,7 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
                           ),
                           child: ListTile(
                             onTap: () async {
+                              FocusScope.of(context).unfocus();
                               final realIndex = canciones.indexWhere(
                                 (e) => e.id == c.id,
                               );
@@ -352,7 +367,7 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
                                     await eliminarFavorito(c.id!);
                                   },
                                 ),
-                                IconButton(
+                                AppDropdownMenu<String>(
                                   icon: Icon(
                                     LucideIcons.ellipsisVertical,
                                     size: 18,
@@ -360,56 +375,72 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
                                         ? Colors.white54
                                         : Colors.black45,
                                   ),
-                                  onPressed: () {
-                                    ActionBottomSheet.show(
-                                      context,
-                                      songTitle: c.titulo,
-                                      songId: c.id!,
-                                      actions: [
-                                        ActionItem(
-                                          title: "Reproducir",
-                                          icon: LucideIcons.play,
-                                          onTap: () async {
-                                            final realIndex = canciones
-                                                .indexWhere((e) => e.id == c.id);
-                                            if (realIndex == -1) return;
-                                            await MusicService.instance
-                                                .playPlaylist(
-                                              canciones,
-                                              realIndex,
-                                              context: "favorites",
-                                            );
-                                          },
-                                        ),
-                                        ActionItem(
-                                          title: "Reproducir siguiente",
-                                          icon: LucideIcons.listStart,
-                                          onTap: () async {
-                                            await MusicService.instance
-                                                .playNext(c);
-                                          },
-                                        ),
-                                        ActionItem(
-                                          title: "Añadir a la cola",
-                                          icon: LucideIcons.listPlus,
-                                          onTap: () async {
-                                            await MusicService.instance
-                                                .addToQueue(c);
-                                          },
-                                        ),
-                                        ActionItem(
-                                          title: "Quitar de Favoritos",
-                                          icon: LucideIcons.heartOff,
-                                          textColor: AppColors.danger,
-                                          iconColor: AppColors.danger,
-                                          darkTextColor: AppColors.danger,
-                                          darkIconColor: AppColors.danger,
-                                          onTap: () async {
-                                            await eliminarFavorito(c.id!);
-                                          },
-                                        ),
-                                      ],
-                                    );
+                                  items: [
+                                    AppDropdownItem(
+                                      value: "play",
+                                      text: "Reproducir",
+                                      icon: LucideIcons.play,
+                                      iconColor: AppColors.primary,
+                                    ),
+                                    AppDropdownItem(
+                                      value: "next",
+                                      text: "Reproducir siguiente",
+                                      icon: LucideIcons.listStart,
+                                      iconColor: AppColors.primary,
+                                    ),
+                                    AppDropdownItem(
+                                      value: "queue",
+                                      text: "Añadir a la cola",
+                                      icon: LucideIcons.listPlus,
+                                      iconColor: AppColors.primary,
+                                    ),
+                                    AppDropdownItem(
+                                      value: "rename",
+                                      text: "Renombrar canción",
+                                      icon: LucideIcons.pencil,
+                                    ),
+                                    AppDropdownItem(
+                                      value: "remove_fav",
+                                      text: "Quitar de Favoritos",
+                                      icon: LucideIcons.heartOff,
+                                      isDestructive: true,
+                                      isDividerBefore: true,
+                                    ),
+                                  ],
+                                  onSelected: (value) async {
+                                    if (value == "play") {
+                                      final realIndex = canciones.indexWhere(
+                                        (e) => e.id == c.id,
+                                      );
+                                      if (realIndex == -1) return;
+                                      await MusicService.instance.playPlaylist(
+                                        canciones,
+                                        realIndex,
+                                        context: "favorites",
+                                      );
+                                    } else if (value == "next") {
+                                      await MusicService.instance.playNext(c);
+                                    } else if (value == "queue") {
+                                      await MusicService.instance.addToQueue(c);
+                                    } else if (value == "rename") {
+                                      final res =
+                                          await CustomDialog.showRenameSongDialog(
+                                        context: context,
+                                        currentTitle: c.titulo,
+                                      );
+                                      if (res != null &&
+                                          res.newTitle.isNotEmpty) {
+                                        await CancionRepository().renombrar(
+                                          c.id!,
+                                          res.newTitle,
+                                          renombrarArchivoFisico:
+                                              res.renamePhysicalFile,
+                                        );
+                                        cargarFavoritos();
+                                      }
+                                    } else if (value == "remove_fav") {
+                                      await eliminarFavorito(c.id!);
+                                    }
                                   },
                                 ),
                               ],
@@ -419,7 +450,8 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
                       },
                     ),
                   );
-          },
+            },
+          ),
         ),
       ),
     );
@@ -548,36 +580,25 @@ class _FavoritosScreenState extends State<FavoritosScreen> {
               ),
             ],
           ),
-          child: TextField(
+          child: CustomTextField(
             controller: _searchController,
             onChanged: filtrarCanciones,
-            style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: "Buscar en favoritos...",
-              hintStyle: TextStyle(
-                color: isDark ? Colors.white38 : Colors.black38,
-                fontSize: 13,
-              ),
-              prefixIcon: Icon(
-                LucideIcons.search,
-                size: 18,
-                color: isDark ? Colors.white54 : Colors.black45,
-              ),
-              suffixIcon: filtroActivo
-                  ? IconButton(
-                      icon: const Icon(LucideIcons.x, size: 16),
-                      onPressed: () {
-                        _searchController.clear();
-                        filtrarCanciones("");
-                      },
-                    )
-                  : null,
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
+            hintText: "Buscar en favoritos...",
+            prefixIcon: Icon(
+              LucideIcons.search,
+              size: 18,
+              color: isDark ? Colors.white54 : Colors.black45,
             ),
+            suffixIcon: filtroActivo
+                ? IconButton(
+                    icon: const Icon(LucideIcons.x, size: 16),
+                    onPressed: () {
+                      FocusScope.of(context).unfocus();
+                      _searchController.clear();
+                      filtrarCanciones("");
+                    },
+                  )
+                : null,
           ),
         ),
 

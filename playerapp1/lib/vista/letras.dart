@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -712,36 +713,23 @@ class _LyricsScreenState extends State<LyricsScreen> with SingleTickerProviderSt
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    CustomTextField(
                       controller: controller,
                       autofocus: true,
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: "Ej: Bohemian Rhapsody Queen",
-                        filled: true,
-                        fillColor: isDark ? const Color(0xFF1E2235) : const Color(0xFFEFF2F8),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        prefixIcon: const Icon(LucideIcons.search, size: 18),
-                        suffixIcon: controller.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(LucideIcons.x, size: 16),
-                                onPressed: () {
-                                  controller.clear();
-                                  setModalState(() {
-                                    candidateResults = [];
-                                    hasSearched = false;
-                                  });
-                                },
-                              )
-                            : null,
-                      ),
+                      hintText: "Ej: Bohemian Rhapsody Queen",
+                      prefixIcon: const Icon(LucideIcons.search, size: 18),
+                      suffixIcon: controller.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(LucideIcons.x, size: 16),
+                              onPressed: () {
+                                controller.clear();
+                                setModalState(() {
+                                  candidateResults = [];
+                                  hasSearched = false;
+                                });
+                              },
+                            )
+                          : null,
                       onChanged: (val) {
                         debounce?.cancel();
                         debounce = Timer(const Duration(milliseconds: 250), () {
@@ -1875,6 +1863,15 @@ class _LyricsScreenState extends State<LyricsScreen> with SingleTickerProviderSt
               final isPassed = (i < _activeLineIndex);
               final lineKey = _lineKeys.putIfAbsent(i, () => GlobalKey());
 
+              // ⏱️ Cálculo dinámico de la duración exacta del verso activo (aplica para canciones lentas y rápidas)
+              final lineStart = line.timestamp;
+              final lineEnd = (i < lines.length - 1)
+                  ? lines[i + 1].timestamp
+                  : (_music.player.duration ?? lineStart + const Duration(seconds: 4));
+              final lineDurationMs = math.max(300, (lineEnd - lineStart).inMilliseconds);
+              final elapsedMs = (currentPosition - lineStart).inMilliseconds.clamp(0, lineDurationMs);
+              final lineProgress = (elapsedMs / lineDurationMs).clamp(0.0, 1.0);
+
               return GestureDetector(
                 key: lineKey,
                 onTap: () async {
@@ -1940,6 +1937,45 @@ class _LyricsScreenState extends State<LyricsScreen> with SingleTickerProviderSt
                                 : (isDark ? Colors.white38 : Colors.black38),
                             fontStyle: FontStyle.italic,
                           ),
+                        ),
+                      ],
+                      if (isActive) ...[
+                        const SizedBox(height: 8),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final fillWidth = constraints.maxWidth * lineProgress;
+                            return Container(
+                              height: 3.5,
+                              width: constraints.maxWidth,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: isDark ? 0.20 : 0.14),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 80),
+                                  height: 3.5,
+                                  width: fillWidth,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        AppColors.primary,
+                                        AppColors.accent,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(2),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppColors.primary.withValues(alpha: 0.6),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ],

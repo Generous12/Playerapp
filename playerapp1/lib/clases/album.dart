@@ -69,15 +69,13 @@ class Album {
     );
   }
 
-  static Future<List<Album>> filterByYear(int year) async {
+  static Future<int> updateTitle(int id, String newTitle) async {
     final db = await DatabaseHelper.instance.database;
-
-    final result = await db.query(
+    return await db.update(
       'albumes',
-      where: 'year = ?',
-      whereArgs: [year],
+      {'titulo': newTitle},
+      where: 'id = ?',
+      whereArgs: [id],
     );
-
-    return result.map((e) => Album.fromMap(e)).toList();
   }
 }

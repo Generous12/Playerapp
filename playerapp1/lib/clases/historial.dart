@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:playerapp1/database/playerdb.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -37,15 +38,26 @@ class HistorialDao {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
   Future<int> insertHistorial(int idCancion) async {
-    final db = await _dbHelper.database;
-    return await db.insert(
-      'historial_reproduccion',
-      {
-        'id_cancion': idCancion,
-        'fecha_reproduccion': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    try {
+      final db = await _dbHelper.database;
+      final exists = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM canciones WHERE id = ?', [idCancion]),
+      ) ?? 0;
+
+      if (exists == 0) return -1;
+
+      return await db.insert(
+        'historial_reproduccion',
+        {
+          'id_cancion': idCancion,
+          'fecha_reproduccion': DateTime.now().millisecondsSinceEpoch,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      debugPrint("⚠️ No se pudo registrar historial (canción eliminada o no encontrada): $e");
+      return -1;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getHistorialCompleto() async {

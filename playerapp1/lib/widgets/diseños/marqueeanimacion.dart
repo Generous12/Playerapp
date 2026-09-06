@@ -27,6 +27,7 @@ class SongMarqueeTitle extends StatelessWidget {
       height: fontSize + 6,
       child: text.length > 25
           ? Marquee(
+              key: ValueKey(text),
               text: text,
               style: style,
               velocity: 30,
@@ -37,7 +38,6 @@ class SongMarqueeTitle extends StatelessWidget {
               decelerationDuration: const Duration(milliseconds: 500),
               fadingEdgeStartFraction: 0.1,
               fadingEdgeEndFraction: 0.1,
-          
             )
           : Text(
               text,

@@ -6,6 +6,7 @@ import 'package:playerapp1/vista/inicio.dart';
 import 'package:playerapp1/vista/reproductor.dart';
 import 'package:playerapp1/widgets/diseños/bottombar.dart';
 import 'package:playerapp1/widgets/diseños/overlaydecarga.dart';
+import 'package:playerapp1/widgets/diseños/pattern_background.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -48,29 +49,32 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Scaffold(
-          body: IndexedStack(
-            index: currentIndex,
-            children: _screens,
+    return PatternBackground(
+      child: Stack(
+        children: [
+          Scaffold(
+            backgroundColor: Colors.transparent,
+            body: IndexedStack(
+              index: currentIndex,
+              children: _screens,
+            ),
           ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: CustomBottomBar(
-            currentIndex: currentIndex,
-            onTap: (index) {
-              setState(() {
-                currentIndex = index;
-              });
-            },
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: CustomBottomBar(
+              currentIndex: currentIndex,
+              onTap: (index) {
+                setState(() {
+                  currentIndex = index;
+                });
+              },
+            ),
           ),
-        ),
-        if (importando) const ImportandoOverlay(),
-      ],
+          if (importando) const ImportandoOverlay(),
+        ],
+      ),
     );
   }
 }

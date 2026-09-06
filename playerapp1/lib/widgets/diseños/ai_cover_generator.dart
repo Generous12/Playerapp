@@ -266,7 +266,7 @@ class _AICoverGeneratorModalState extends State<AICoverGeneratorModal> {
           // Preview Canvas Central
           AICoverArtWidget(
             title: _titleController.text.isNotEmpty ? _titleController.text : "MI PLAYLIST",
-            subtitle: "PlayerApp AI Edition",
+            subtitle: "VibePlus AI Edition",
             style: currentStyle,
             size: 190,
           ),

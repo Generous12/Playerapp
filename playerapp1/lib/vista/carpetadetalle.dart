@@ -3,8 +3,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:playerapp1/clases/album.dart';
 import 'package:playerapp1/clases/canciones.dart';
 import 'package:playerapp1/colores/appcolors.dart';
+import 'package:playerapp1/notifiers/cancionesnotifier.dart';
+import 'package:playerapp1/notifiers/favoritonotifier.dart';
 import 'package:playerapp1/services/musicservice.dart';
-import 'package:playerapp1/widgets/diseños/modalamplio2.dart';
+import 'package:playerapp1/widgets/diseños/app_dropdown_menu.dart';
+import 'package:playerapp1/widgets/diseños/pattern_background.dart';
 import 'package:playerapp1/widgets/diseños/showdialog.dart';
 import 'package:playerapp1/widgets/diseños/text.dart';
 
@@ -28,6 +31,20 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   void initState() {
     super.initState();
     _loadSongs();
+    CancionesNotifier.instance.addListener(_onSongsChanged);
+    FavoritosNotifier.instance.addListener(_onSongsChanged);
+  }
+
+  void _onSongsChanged() {
+    if (!mounted) return;
+    _loadSongs();
+  }
+
+  @override
+  void dispose() {
+    CancionesNotifier.instance.removeListener(_onSongsChanged);
+    FavoritosNotifier.instance.removeListener(_onSongsChanged);
+    super.dispose();
   }
 
   Future<void> _loadSongs() async {
@@ -64,35 +81,46 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final musicService = MusicService.instance;
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios_new_rounded,
-            color: theme.colorScheme.onSurface,
-            size: 18,
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: CustomText(
-          text: widget.album.titulo,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: theme.colorScheme.onSurface,
-        ),
-        centerTitle: true,
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          /// 📂 CABECERA MINIMALISTA
-          _buildHeaderCompact(context, theme, isDark),
+    return PatternBackground(
+      child: AnimatedBuilder(
+        animation: musicService,
+        builder: (context, _) {
+          final currentSong = musicService.currentSong;
+          final isPlayingFromThisFolder =
+              musicService.context == "album_${widget.album.id}" &&
+              currentSong != null &&
+              currentSong.idAlbum == widget.album.id;
 
-          const SizedBox(height: 12),
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: theme.colorScheme.onSurface,
+                  size: 18,
+                ),
+                onPressed: () => Navigator.pop(context),
+              ),
+              title: CustomText(
+                text: widget.album.titulo,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+              centerTitle: true,
+            ),
+            body: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                /// 📂 CABECERA MINIMALISTA
+                _buildHeaderCompact(context, theme, isDark),
+
+                const SizedBox(height: 12),
 
           /// 🎵 LISTA DE CANCIONES
           Expanded(
@@ -147,7 +175,10 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                             itemCount: songs.length,
                             itemBuilder: (context, index) {
                               final song = songs[index];
-                              final isSelected = song.id != null && currentId == song.id;
+                              final isSelected =
+                                  music.context == "album_${widget.album.id}" &&
+                                  song.id != null &&
+                                  currentId == song.id;
                               final mb = ((song.tamanoArchivo ?? 0) / (1024 * 1024))
                                   .toStringAsFixed(1);
                               final extension = song.rutaArchivo.contains('.')
@@ -302,7 +333,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                                           }
                                         },
                                       ),
-                                      IconButton(
+                                      AppDropdownMenu<String>(
                                         icon: Icon(
                                           LucideIcons.ellipsisVertical,
                                           size: 18,
@@ -310,75 +341,119 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                                               ? Colors.white54
                                               : Colors.black45,
                                         ),
-                                        onPressed: () {
-                                          ActionBottomSheet.show(
-                                            context,
-                                            songTitle: song.titulo,
-                                            songId: song.id!,
-                                            actions: [
-                                              ActionItem(
-                                                title: "Reproducir",
-                                                icon: LucideIcons.play,
-                                                onTap: () async {
-                                                  final realIndex = songs
-                                                      .indexWhere(
-                                                    (e) => e.id == song.id,
-                                                  );
-                                                  if (realIndex == -1) return;
-                                                  await MusicService.instance
-                                                      .playPlaylist(
-                                                    songs,
-                                                    realIndex,
-                                                    context:
-                                                        "album_${widget.album.id}",
-                                                  );
-                                                },
-                                              ),
-                                              ActionItem(
-                                                title: "Reproducir siguiente",
-                                                icon: LucideIcons.listStart,
-                                                onTap: () async {
-                                                  await MusicService.instance
-                                                      .playNext(song);
-                                                },
-                                              ),
-                                              ActionItem(
-                                                title: "Añadir a la cola",
-                                                icon: LucideIcons.listPlus,
-                                                onTap: () async {
-                                                  await MusicService.instance
-                                                      .addToQueue(song);
-                                                },
-                                              ),
-                                              ActionItem(
-                                                title: "Quitar de esta carpeta",
-                                                icon: LucideIcons.folderMinus,
-                                                textColor: AppColors.danger,
-                                                iconColor: AppColors.danger,
-                                                darkTextColor:
-                                                    AppColors.danger,
-                                                darkIconColor:
-                                                    AppColors.danger,
-                                                onTap: () async {
-                                                  await _cancionDao
-                                                      .removeFromAlbum(
-                                                    song.id!,
-                                                  );
-                                                  await _loadSongs();
-                                                  if (MusicService
-                                                          .instance.context ==
-                                                      "album_${widget.album.id}") {
-                                                    await MusicService.instance
-                                                        .refreshPlaylist(
-                                                      songs,
-                                                      context:
-                                                          "album_${widget.album.id}",
-                                                    );
-                                                  }
-                                                },
-                                              ),
-                                            ],
-                                          );
+                                        items: [
+                                          AppDropdownItem(
+                                            value: "play",
+                                            text: "Reproducir",
+                                            icon: LucideIcons.play,
+                                            iconColor: AppColors.primary,
+                                          ),
+                                          AppDropdownItem(
+                                            value: "next",
+                                            text: "Reproducir siguiente",
+                                            icon: LucideIcons.listStart,
+                                            iconColor: AppColors.primary,
+                                          ),
+                                          AppDropdownItem(
+                                            value: "queue",
+                                            text: "Añadir a la cola",
+                                            icon: LucideIcons.listPlus,
+                                            iconColor: AppColors.primary,
+                                          ),
+                                          AppDropdownItem(
+                                            value: "rename",
+                                            text: "Renombrar canción",
+                                            icon: LucideIcons.pencil,
+                                          ),
+                                          AppDropdownItem(
+                                            value: "remove_folder",
+                                            text: "Quitar de esta carpeta",
+                                            icon: LucideIcons.folderMinus,
+                                            isDestructive: true,
+                                            isDividerBefore: true,
+                                          ),
+                                          AppDropdownItem(
+                                            value: "delete",
+                                            text: "Eliminar canción",
+                                            icon: LucideIcons.trash2,
+                                            isDestructive: true,
+                                          ),
+                                        ],
+                                        onSelected: (value) async {
+                                          if (value == "play") {
+                                            final realIndex = songs.indexWhere(
+                                              (e) => e.id == song.id,
+                                            );
+                                            if (realIndex == -1) return;
+                                            await MusicService.instance
+                                                .playPlaylist(
+                                              songs,
+                                              realIndex,
+                                              context:
+                                                  "album_${widget.album.id}",
+                                            );
+                                          } else if (value == "next") {
+                                            await MusicService.instance
+                                                .playNext(song);
+                                          } else if (value == "queue") {
+                                            await MusicService.instance
+                                                .addToQueue(song);
+                                          } else if (value == "rename") {
+                                            final res = await CustomDialog
+                                                .showRenameSongDialog(
+                                              context: context,
+                                              currentTitle: song.titulo,
+                                            );
+                                            if (res != null &&
+                                                res.newTitle.isNotEmpty) {
+                                              await _cancionDao.renombrar(
+                                                song.id!,
+                                                res.newTitle,
+                                                renombrarArchivoFisico:
+                                                    res.renamePhysicalFile,
+                                              );
+                                              await _loadSongs();
+                                            }
+                                          } else if (value == "remove_folder") {
+                                            await _cancionDao.removeFromAlbum(
+                                              song.id!,
+                                            );
+                                            await _loadSongs();
+                                            if (MusicService.instance.context ==
+                                                "album_${widget.album.id}") {
+                                              await MusicService.instance
+                                                  .refreshPlaylist(
+                                                songs,
+                                                context:
+                                                    "album_${widget.album.id}",
+                                              );
+                                            }
+                                          } else if (value == "delete") {
+                                            if (song.id == null) return;
+                                            final opcion = await CustomDialog
+                                                .showDeleteSongDialog(
+                                              context: context,
+                                              songTitle: song.titulo,
+                                            );
+
+                                            if (opcion == null ||
+                                                opcion == DeleteOption.cancel) {
+                                              return;
+                                            }
+
+                                            final borrarFisico = (opcion ==
+                                                DeleteOption.libraryAndStorage);
+
+                                            await MusicService.instance
+                                                .removeSongFromPlaylist(
+                                              song.id!,
+                                            );
+                                            await _cancionDao.eliminar(
+                                              song.id!,
+                                              borrarArchivoFisico: borrarFisico,
+                                            );
+                                            await _loadSongs();
+                                          }
                                         },
                                       ),
                                     ],
@@ -389,6 +464,91 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
                           );
                         },
                       ),
+          ),
+          if (isPlayingFromThisFolder)
+            _buildFolderMiniPlayer(musicService, isDark),
+        ],
+      ),
+    );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFolderMiniPlayer(MusicService musicService, bool isDark) {
+    final song = musicService.currentSong;
+    if (song == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF141724).withValues(alpha: 0.95)
+            : Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.3),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(LucideIcons.disc, size: 18, color: AppColors.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Sonando en esta carpeta: ${song.titulo}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                Text(
+                  song.artista ?? "VibePlus",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isDark ? Colors.white54 : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              musicService.isPlaying ? LucideIcons.pause : LucideIcons.play,
+              color: AppColors.primary,
+              size: 22,
+            ),
+            onPressed: () {
+              if (musicService.isPlaying) {
+                musicService.player.pause();
+              } else {
+                musicService.player.play();
+              }
+            },
           ),
         ],
       ),

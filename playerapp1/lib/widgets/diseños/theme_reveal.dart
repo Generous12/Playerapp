@@ -32,7 +32,7 @@ class ThemeRevealState extends State<ThemeReveal> with SingleTickerProviderState
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 350),
     );
   }
 
@@ -53,13 +53,12 @@ class ThemeRevealState extends State<ThemeReveal> with SingleTickerProviderState
     final accent = themeProvider.palette.primary;
     final maxDist = _calculateMaxRadius(center, size);
 
-    // 1. Capturar pantalla antes de cambiar el tema (optimizado a pixelRatio 1.2 para rendimiento instantáneo a 60/120fps)
+    // 1. Capturar pantalla antes de cambiar el tema (optimizado para rendimiento ultra rápido)
     ui.Image? snapshot;
     try {
       final boundary = _boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary != null) {
-        final captureRatio = math.min(mediaQuery.devicePixelRatio, 1.2);
-        snapshot = await boundary.toImage(pixelRatio: captureRatio);
+        snapshot = await boundary.toImage(pixelRatio: 0.75);
       }
     } catch (_) {}
 
@@ -81,10 +80,10 @@ class ThemeRevealState extends State<ThemeReveal> with SingleTickerProviderState
 
     _controller.reset();
 
-    // 3. Ahora que la captura está protegiendo la pantalla, cambiar el tema real debajo
+    // 3. Cambiar el tema real debajo
     themeProvider.setTheme(targetMode);
 
-    // 4. Iniciar la expansión de la gota de agua
+    // 4. Iniciar la expansión de la gota de agua suavemente
     try {
       await _controller.forward();
     } finally {
@@ -103,7 +102,7 @@ class ThemeRevealState extends State<ThemeReveal> with SingleTickerProviderState
     final d2 = (center - Offset(size.width, 0)).distance;
     final d3 = (center - Offset(0, size.height)).distance;
     final d4 = (center - Offset(size.width, size.height)).distance;
-    return math.max(math.max(d1, d2), math.max(d3, d4)) + 30.0;
+    return math.max(math.max(d1, d2), math.max(d3, d4)) + 40.0;
   }
 
   @override
@@ -123,7 +122,7 @@ class ThemeRevealState extends State<ThemeReveal> with SingleTickerProviderState
               child: AnimatedBuilder(
                 animation: _controller,
                 builder: (context, _) {
-                  final progress = Curves.easeInOutCubic.transform(_controller.value);
+                  final progress = Curves.easeOutCubic.transform(_controller.value);
                   final currentRadius = progress * _maxRadius;
 
                   return CustomPaint(
@@ -164,8 +163,6 @@ class _CircularRevealWithWaterRipplePainter extends CustomPainter {
     canvas.save();
 
     // Recortar la imagen del tema anterior:
-    // El círculo en expansión es un agujero transparente por donde se revela el nuevo tema debajo.
-    // Fuera del círculo se dibuja la imagen del tema anterior, por lo que los cards no cambian hasta que la onda los toque.
     final clipPath = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
       ..addOval(Rect.fromCircle(center: center, radius: radius))
@@ -178,7 +175,7 @@ class _CircularRevealWithWaterRipplePainter extends CustomPainter {
       rect: Rect.fromLTWH(0, 0, size.width, size.height),
       image: oldImage,
       fit: BoxFit.cover,
-      filterQuality: FilterQuality.low,
+      filterQuality: FilterQuality.none,
     );
 
     canvas.restore();

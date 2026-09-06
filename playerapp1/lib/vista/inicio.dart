@@ -1,17 +1,13 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:playerapp1/clases/canciones.dart';
 import 'package:playerapp1/clases/favorito.dart';
-import 'package:playerapp1/clases/historial.dart';
 import 'package:playerapp1/colores/appcolors.dart';
 import 'package:playerapp1/notifiers/cancionesnotifier.dart';
 import 'package:playerapp1/notifiers/favoritonotifier.dart';
 import 'package:playerapp1/services/musicservice.dart';
-import 'package:playerapp1/services/permissioservice.dart';
-import 'package:playerapp1/widgets/diseños/ai_dj_dialog.dart';
+import 'package:playerapp1/vista/importar.dart';
 import 'package:playerapp1/widgets/diseños/text.dart';
 import 'package:playerapp1/widgets/pantallas/itembuilder_inicio.dart';
 
@@ -35,23 +31,9 @@ class _InicioScreenState extends State<InicioScreen> {
   Set<int> favoritosIds = {};
   List<Cancion> canciones = [];
   List<Cancion> cancionesFiltradas = [];
-  List<Cancion> cancionesMasReproducidas = [];
   int totalCanciones = 0;
   double totalMB = 0;
   bool _isLoading = true;
-
-  static const List<String> extensionesAudio = [
-    '.mp3',
-    '.wav',
-    '.flac',
-    '.aac',
-    '.m4a',
-    '.ogg',
-    '.opus',
-    '.wma',
-    '.amr',
-    '.3gp',
-  ];
 
   @override
   void initState() {
@@ -60,9 +42,6 @@ class _InicioScreenState extends State<InicioScreen> {
     cargarFavoritos();
     CancionesNotifier.instance.addListener(_onCancionesChanged);
     FavoritosNotifier.instance.addListener(_onFavoritosChanged);
-    MusicService.instance.currentSongIdNotifier.addListener(
-      _onCurrentSongChanged,
-    );
   }
 
   void _onCancionesChanged() {
@@ -81,17 +60,7 @@ class _InicioScreenState extends State<InicioScreen> {
     _searchController.dispose();
     CancionesNotifier.instance.removeListener(_onCancionesChanged);
     FavoritosNotifier.instance.removeListener(_onFavoritosChanged);
-    MusicService.instance.currentSongIdNotifier.removeListener(
-      _onCurrentSongChanged,
-    );
     super.dispose();
-  }
-
-  void _onCurrentSongChanged() {
-    if (!mounted) return;
-    cargarMasReproducidas().then((_) {
-      if (mounted) setState(() {});
-    });
   }
 
   Future<void> asignarCancionAAlbum(int songId, int albumId) async {
@@ -119,23 +88,20 @@ class _InicioScreenState extends State<InicioScreen> {
       setState(() => _isLoading = true);
     }
 
-    await Future.wait([
-      cargarCanciones(),
-      cargarEstadisticas(),
-      cargarMasReproducidas(),
-    ]);
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-  }
-
-  Future<void> cargarMasReproducidas() async {
-    final HistorialDao histDao = HistorialDao();
-    final data = await histDao.getMasReproducidas(4);
-    if (data.isNotEmpty) {
-      cancionesMasReproducidas = data.map((e) => Cancion.fromMap(e)).toList();
-    } else {
-      cancionesMasReproducidas = canciones.take(4).toList();
+    try {
+      await Future.wait([
+        cargarCanciones(),
+        cargarEstadisticas(),
+      ]).timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => [],
+      );
+    } catch (e) {
+      debugPrint("Error al cargar datos en InicioScreen: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -170,64 +136,10 @@ class _InicioScreenState extends State<InicioScreen> {
   }
 
   Future<void> importarArchivos() async {
-    widget.onImportandoChanged?.call(true);
-    await Future.delayed(const Duration(milliseconds: 30));
-
-    try {
-      final permitido = await PermissionService.solicitarPermisosAudio();
-      if (!permitido) return;
-
-      final result = await FilePicker.pickFiles(
-        allowMultiple: true,
-        type: FileType.custom,
-        allowedExtensions: extensionesAudio
-            .map((e) => e.replaceAll('.', ''))
-            .toList(),
-      );
-
-      if (result == null || result.files.isEmpty) return;
-
-      final listaActual = await _repo.obtenerTodas();
-      int basePos = listaActual.length;
-      final List<Cancion> cancionesNuevas = [];
-
-      for (final file in result.files) {
-        final ruta = file.path;
-        if (ruta == null) continue;
-
-        // Validación de seguridad: existencia física y lista blanca de extensiones
-        final f = File(ruta);
-        if (!f.existsSync()) continue;
-
-        final ext = ruta.split('.').last.toLowerCase();
-        const allowed = ['mp3', 'm4a', 'aac', 'flac', 'wav', 'ogg', 'opus'];
-        if (!allowed.contains(ext)) continue;
-
-        final existe = await _repo.existeRuta(ruta);
-        if (existe) continue;
-
-        cancionesNuevas.add(
-          Cancion(
-            titulo: file.name,
-            duracion: 0,
-            rutaArchivo: ruta,
-            tamanoArchivo: file.size,
-            fechaAgregado: DateTime.now().millisecondsSinceEpoch,
-            posicion: basePos++,
-          ),
-        );
-      }
-
-      if (cancionesNuevas.isNotEmpty) {
-        await _repo.insertarBatch(cancionesNuevas);
-        final nuevaLista = await _repo.obtenerTodas();
-        await MusicService.instance.refreshPlaylist(nuevaLista);
-      }
-    } finally {
-      if (mounted) {
-        widget.onImportandoChanged?.call(false);
-      }
-    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ImportScreen()),
+    );
   }
 
   @override
@@ -237,20 +149,25 @@ class _InicioScreenState extends State<InicioScreen> {
     final hayCanciones = canciones.isNotEmpty;
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: _isLoading
-            ? Center(child: CircularProgressIndicator(color: AppColors.primary))
-            : !hayCanciones
-            ? _buildEmptyState(context, theme, isDark)
-            : Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: ReorderableListView.builder(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 120),
-                  header: _buildHeader(context, theme, isDark),
-                  itemCount: cancionesFiltradas.length,
-                  buildDefaultDragHandles: !filtroActivo,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: _isLoading
+              ? Center(child: CircularProgressIndicator(color: AppColors.primary))
+              : !hayCanciones
+              ? _buildEmptyState(context, theme, isDark)
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: ReorderableListView.builder(
+                    physics: const BouncingScrollPhysics(),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.only(bottom: 120),
+                    header: _buildHeader(context, theme, isDark),
+                    itemCount: cancionesFiltradas.length,
+                    buildDefaultDragHandles: !filtroActivo,
                   proxyDecorator: (child, index, animation) {
                     return Material(
                       color: isDark ? const Color(0xFF1E2132) : Colors.white,
@@ -295,13 +212,12 @@ class _InicioScreenState extends State<InicioScreen> {
                   },
                 ),
               ),
+        ),
       ),
     );
   }
 
   Widget _buildHeader(BuildContext context, ThemeData theme, bool isDark) {
-    final quickTracks = cancionesMasReproducidas;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -357,60 +273,6 @@ class _InicioScreenState extends State<InicioScreen> {
             ),
             Row(
               children: [
-                InkWell(
-                  onTap: () {
-                    AIDJModal.show(context, canciones);
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 9,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppColors.primary, AppColors.accent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.35),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(3),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            LucideIcons.sparkles,
-                            size: 13,
-                            color: Color(0xFF08090D),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          "DJ IA",
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF08090D),
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   onPressed: importarArchivos,
@@ -467,181 +329,28 @@ class _InicioScreenState extends State<InicioScreen> {
               ),
             ],
           ),
-          child: TextField(
+          child: CustomTextField(
             controller: _searchController,
             onChanged: filtrarCanciones,
-            style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: "Buscar por título o artista...",
-              hintStyle: TextStyle(
-                color: isDark ? Colors.white38 : Colors.black38,
-                fontSize: 13,
-              ),
-              prefixIcon: Icon(
-                LucideIcons.search,
-                size: 18,
-                color: isDark ? Colors.white54 : Colors.black45,
-              ),
-              suffixIcon: filtroActivo
-                  ? IconButton(
-                      icon: const Icon(LucideIcons.x, size: 16),
-                      onPressed: () {
-                        _searchController.clear();
-                        filtrarCanciones("");
-                      },
-                    )
-                  : null,
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
+            hintText: "Buscar por título o artista...",
+            prefixIcon: Icon(
+              LucideIcons.search,
+              size: 18,
+              color: isDark ? Colors.white54 : Colors.black45,
             ),
+            suffixIcon: filtroActivo
+                ? IconButton(
+                    icon: const Icon(LucideIcons.x, size: 16),
+                    onPressed: () {
+                      _searchController.clear();
+                      filtrarCanciones("");
+                    },
+                  )
+                : null,
           ),
         ),
 
-        const SizedBox(height: 14),
-
-        /// ⚡ PISTAS RÁPIDAS (Quick Access Mix)
-        if (!filtroActivo && quickTracks.isNotEmpty) ...[
-          Row(
-            children: [
-              Icon(LucideIcons.sparkles, size: 15, color: AppColors.accent),
-              const SizedBox(width: 6),
-              CustomText(
-                text: "Escuchado Reciente",
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onSurface,
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: quickTracks.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              mainAxisExtent: 60,
-            ),
-            itemBuilder: (context, index) {
-              final track = quickTracks[index];
-              return ValueListenableBuilder<int?>(
-                valueListenable: MusicService.instance.currentSongIdNotifier,
-                builder: (context, currentId, _) {
-                  final isSelected = currentId == track.id;
-                  return GestureDetector(
-                    onTap: () async {
-                      final realIndex = canciones.indexWhere(
-                        (e) => e.id == track.id,
-                      );
-                      if (realIndex != -1) {
-                        await MusicService.instance.playPlaylist(
-                          canciones,
-                          realIndex,
-                          context: "general",
-                        );
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? AppColors.primary.withValues(
-                                alpha: isDark ? 0.20 : 0.12,
-                              )
-                            : isDark
-                            ? const Color(0xFF11131B)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: isSelected
-                              ? AppColors.primary
-                              : (isDark
-                                    ? Colors.white.withValues(alpha: 0.06)
-                                    : Colors.black.withValues(alpha: 0.05)),
-                          width: isSelected ? 1.5 : 1.0,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(
-                              alpha: isDark ? 0.22 : 0.03,
-                            ),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: isSelected
-                                    ? [AppColors.primary, AppColors.accent]
-                                    : [
-                                        AppColors.primary.withValues(
-                                          alpha: 0.15,
-                                        ),
-                                        AppColors.primary.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                      ],
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              isSelected
-                                  ? Icons.graphic_eq_rounded
-                                  : LucideIcons.play,
-                              color: isSelected
-                                  ? const Color(0xFF08090D)
-                                  : AppColors.primary,
-                              size: 16,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CustomText(
-                                  text: track.titulo,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  overflow: TextOverflow.ellipsis,
-                                  color: theme.colorScheme.onSurface,
-                                ),
-                                const SizedBox(height: 2),
-                                CustomText(
-                                  text: "Pista ${index + 1}",
-                                  fontSize: 10,
-                                  color: isDark
-                                      ? Colors.white54
-                                      : Colors.black45,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-          const SizedBox(height: 22),
-        ],
+        const SizedBox(height: 16),
 
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,

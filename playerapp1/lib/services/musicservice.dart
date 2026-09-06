@@ -19,14 +19,12 @@ class MusicService extends ChangeNotifier {
   final AndroidLoudnessEnhancer loudnessEnhancer = AndroidLoudnessEnhancer();
 
   late final AudioPlayer player = AudioPlayer(
-    audioPipeline: (!kIsWeb && Platform.isAndroid)
-        ? AudioPipeline(
-            androidAudioEffects: [
-              androidEqualizer,
-              loudnessEnhancer,
-            ],
-          )
-        : null,
+    audioPipeline: AudioPipeline(
+      androidAudioEffects: [
+        androidEqualizer,
+        loudnessEnhancer,
+      ],
+    ),
   );
   final HistorialDao _historialDao = HistorialDao();
   final EstadoCancionDao _estadoCancionDao = EstadoCancionDao();
@@ -104,26 +102,84 @@ class MusicService extends ChangeNotifier {
     return _selectedByContext[context];
   }
 
+  Future<void> updateSongMetadata(int id, String newTitle, String newPath) async {
+    bool updated = false;
+    for (var song in _playlist) {
+      if (song.id == id) {
+        song.titulo = newTitle;
+        song.rutaArchivo = newPath;
+        updated = true;
+      }
+    }
+    if (_currentSong != null && _currentSong!.id == id) {
+      _currentSong!.titulo = newTitle;
+      _currentSong!.rutaArchivo = newPath;
+      updated = true;
+
+      final currentPos = player.position;
+      final isPlaying = player.playing;
+
+      final index = _currentIndex;
+      if (index >= 0 && index < _playlist.length && File(newPath).existsSync()) {
+        final audioSources = _playlist.map((song) {
+          return AudioSource.file(
+            song.rutaArchivo,
+            tag: MediaItem(
+              id: (song.id ?? 0).toString(),
+              title: song.titulo,
+              artist: "VibePlus",
+            ),
+          );
+        }).toList();
+
+        _audioSource = ConcatenatingAudioSource(children: audioSources);
+        try {
+          await player.setAudioSource(
+            _audioSource!,
+            initialIndex: index,
+            initialPosition: currentPos,
+          );
+          if (isPlaying) {
+            await player.play();
+          }
+        } catch (e) {
+          debugPrint("Error al re-vincular fuente tras renombrar canción: $e");
+        }
+      }
+    }
+    if (updated) {
+      notifyListeners();
+    }
+  }
+
   Future<void> _loadLastState() async {
     try {
       final estado = await _estadoCancionDao.obtenerUltimoEstado();
+      final repo = CancionRepository();
+      final todas = await repo.obtenerTodas();
+
+      if (todas.isEmpty) return;
+
       if (estado != null) {
-        final repo = CancionRepository();
         final song = await repo.obtenerPorId(estado.idCancion);
         if (song != null) {
-          final todas = await repo.obtenerTodas();
-          if (todas.isNotEmpty) {
-            final index = todas.indexWhere((e) => e.id == song.id);
-            if (index != -1) {
-              await setPlaylist(todas, initialIndex: index);
+          final index = todas.indexWhere((e) => e.id == song.id);
+          if (index != -1) {
+            await setPlaylist(todas, initialIndex: index);
+            if (estado.ultimaPosicion > 0) {
               await player.seek(Duration(milliseconds: estado.ultimaPosicion));
-              if (estado.estaReproduciendo == 1) {
-                await player.play();
-              }
             }
+            if (estado.estaReproduciendo == 1) {
+              await player.play();
+            }
+            return;
           }
         }
       }
+
+      // ⭐ Requisito 3: Si es primera vez o el estado anterior no existe,
+      // cargar por defecto la primera canción de la biblioteca en el reproductor.
+      await setPlaylist(todas, initialIndex: 0);
     } catch (e) {
       debugPrint("Error al cargar último estado: $e");
     }
@@ -132,9 +188,26 @@ class MusicService extends ChangeNotifier {
   void _initialize() {
     _loadLastState();
 
+    int lastSavedMs = -1;
+
+    player.positionStream.listen((position) {
+      final songId = _currentSong?.id;
+      if (songId != null && player.playing) {
+        final currentMs = position.inMilliseconds;
+        if ((currentMs - lastSavedMs).abs() >= 8000) {
+          lastSavedMs = currentMs;
+          _estadoCancionDao.guardarEstado(
+            songId,
+            currentMs,
+            player.playing,
+          );
+        }
+      }
+    });
+
     player.currentIndexStream.listen((index) {
       if (index == null) return;
-      if (_isReordering) return; // ⭐ Evita saltos transitorios durante reordenamiento (drag & drop)
+      if (_isReordering) return;
 
       if (!_playlistLoaded) {
         debugPrint("⏳ currentIndex ignorado, cambiando playlist");
@@ -151,22 +224,18 @@ class MusicService extends ChangeNotifier {
         _currentSong = song;
         currentSongIdNotifier.value = song.id;
 
-        // Si la nueva canción proviene de la cola de usuario, retirarla de la lista de espera
         if (_userQueue.isNotEmpty && _userQueue.first.id == song.id) {
           _userQueue.removeAt(0);
         }
 
-        // Registrar en historial
         if (song.id != null) {
           _historialDao.insertHistorial(song.id!);
         }
 
-        // Guardar estado de la nueva canción
         if (song.id != null) {
-          _estadoCancionDao.guardarEstado(song.id!, 0, player.playing);
+          _estadoCancionDao.guardarEstado(song.id!, player.position.inMilliseconds, player.playing);
         }
 
-        // Precargar letras automáticamente en segundo plano para que estén listas sin esperar
         LyricsService.instance.preloadLyrics(
           trackName: song.titulo,
           artistName: null,
@@ -199,7 +268,6 @@ class MusicService extends ChangeNotifier {
       }
       if (state.processingState == ProcessingState.completed) {
         debugPrint("Canción terminada");
-        // Si llegó al final de la playlist, volver a la primera canción
         if (!player.hasNext && _playlist.isNotEmpty && _loopMode != LoopMode.one) {
           await jumpTo(0);
         }
@@ -243,7 +311,7 @@ class MusicService extends ChangeNotifier {
             tag: MediaItem(
               id: (song.id ?? 0).toString(),
               title: song.titulo,
-              artist: "PlayerApp",
+              artist: "VibePlus",
             ),
           ),
         );
@@ -278,7 +346,7 @@ class MusicService extends ChangeNotifier {
             tag: MediaItem(
               id: (song.id ?? 0).toString(),
               title: song.titulo,
-              artist: "PlayerApp",
+              artist: "VibePlus",
             ),
           ),
         );
@@ -313,7 +381,7 @@ class MusicService extends ChangeNotifier {
                 tag: MediaItem(
                   id: (s.id ?? 0).toString(),
                   title: s.titulo,
-                  artist: "PlayerApp",
+                  artist: "VibePlus",
                 ),
               ),
             )
@@ -496,13 +564,41 @@ class MusicService extends ChangeNotifier {
     _currentSong = _playlist[newIndex];
     currentSongIdNotifier.value = _currentSong?.id;
 
+    // Si la música se está reproduciendo activamente, sincronizamos dinámicamente
+    // las fuentes de audio agregadas al ConcatenatingAudioSource sin interrumpir el playback.
+    if (isCurrentlyPlaying) {
+      if (_audioSource != null) {
+        try {
+          final currentSourceLen = _audioSource!.length;
+          if (newPlaylist.length > currentSourceLen) {
+            final newItems = newPlaylist.sublist(currentSourceLen);
+            final newSources = newItems.map((song) {
+              return AudioSource.file(
+                song.rutaArchivo,
+                tag: MediaItem(
+                  id: (song.id ?? 0).toString(),
+                  title: song.titulo,
+                  artist: "VibePlus",
+                ),
+              );
+            }).toList();
+            await _audioSource!.addAll(newSources);
+          }
+        } catch (e) {
+          debugPrint("Sincronización dinámica de AudioSource en refresh: $e");
+        }
+      }
+      notifyListeners();
+      return;
+    }
+
     final audioSources = _playlist.map((song) {
       return AudioSource.file(
         song.rutaArchivo,
         tag: MediaItem(
           id: (song.id ?? 0).toString(),
           title: song.titulo,
-          artist: "PlayerApp",
+          artist: "VibePlus",
         ),
       );
     }).toList();
@@ -532,10 +628,39 @@ class MusicService extends ChangeNotifier {
   }) async {
     if (canciones.isEmpty) return;
 
-    // Validación de seguridad: Verificar existencia real en disco antes de cargar
-    final validSongs = canciones.where((song) {
-      return song.rutaArchivo.isNotEmpty && File(song.rutaArchivo).existsSync();
-    }).toList();
+    // Validación de seguridad y auto-recuperación de rutas en disco
+    final validSongs = <Cancion>[];
+    for (final song in canciones) {
+      if (song.rutaArchivo.isEmpty) continue;
+      final file = File(song.rutaArchivo);
+      if (file.existsSync()) {
+        validSongs.add(song);
+      } else {
+        try {
+          final parent = file.parent;
+          if (parent.existsSync()) {
+            final files = parent.listSync();
+            final cleanTitle = song.titulo.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').toLowerCase();
+            final matches = files.whereType<File>().where((f) {
+              final fname = f.path.split(Platform.pathSeparator).last.toLowerCase();
+              return fname.contains(cleanTitle) || cleanTitle.contains(fname.split('.').first);
+            }).toList();
+
+            if (matches.isNotEmpty) {
+              final healedPath = matches.first.path;
+              song.rutaArchivo = healedPath;
+              validSongs.add(song);
+              if (song.id != null) {
+                CancionRepository().actualizarRuta(song.id!, healedPath);
+              }
+              debugPrint("🔧 Auto-reparada ruta de canción (${song.titulo}): $healedPath");
+            }
+          }
+        } catch (e) {
+          debugPrint("⚠️ No se pudo auto-reparar la ruta de la canción: $e");
+        }
+      }
+    }
 
     if (validSongs.isEmpty) {
       debugPrint(
@@ -559,7 +684,7 @@ class MusicService extends ChangeNotifier {
         tag: MediaItem(
           id: (song.id ?? 0).toString(),
           title: song.titulo,
-          artist: "PlayerApp",
+          artist: "VibePlus",
         ),
       );
     }).toList();
@@ -592,32 +717,48 @@ class MusicService extends ChangeNotifier {
   }) async {
     if (canciones.isEmpty) return;
     final cambioContexto = _context != context;
-    final mismaPlaylist =
-        _playlist.length == canciones.length &&
+    final sourceMatches = _audioSource != null &&
+        _audioSource!.length == canciones.length &&
+        _playlist.length == canciones.length;
+    final mismaPlaylist = sourceMatches &&
         _playlist.every((song) => canciones.any((e) => e.id == song.id));
 
     try {
-      if (!_playlistLoaded || cambioContexto || !mismaPlaylist) {
+      if (!_playlistLoaded || cambioContexto || !mismaPlaylist || _audioSource == null) {
         await setPlaylist(canciones, initialIndex: index, context: context);
       } else {
-        await player.seek(Duration.zero, index: index);
-
-        _currentIndex = index;
-
-        _currentSong = canciones[index];
-
-        currentSongIdNotifier.value = _currentSong?.id;
+        try {
+          await player.seek(Duration.zero, index: index);
+          _currentIndex = index;
+          _currentSong = canciones[index];
+          currentSongIdNotifier.value = _currentSong?.id;
+        } catch (seekError) {
+          debugPrint("Seek falló en playPlaylist ($seekError). Reconstruyendo playlist...");
+          await setPlaylist(canciones, initialIndex: index, context: context);
+        }
       }
 
+      if (player.volume < 0.05) {
+        await player.setVolume(1.0);
+      }
       await player.play();
     } catch (e) {
       debugPrint("Error in playPlaylist: $e");
+      try {
+        await setPlaylist(canciones, initialIndex: index, context: context);
+        if (player.volume < 0.05) {
+          await player.setVolume(1.0);
+        }
+        await player.play();
+      } catch (inner) {
+        debugPrint("Error crítico al reproducir playlist: $inner");
+      }
     }
   }
 
   Future<void> playSong(Cancion song) async {
     final index = _playlist.indexWhere((e) => e.id == song.id);
-    if (index != -1) {
+    if (index != -1 && _audioSource != null && index < _audioSource!.length) {
       await jumpTo(index);
     } else {
       await playPlaylist([song], 0, context: "queue");
@@ -626,6 +767,9 @@ class MusicService extends ChangeNotifier {
 
   Future<void> play() async {
     try {
+      if (player.volume < 0.05) {
+        await player.setVolume(1.0);
+      }
       if (!player.playing) {
         await player.play();
       }
@@ -684,6 +828,13 @@ class MusicService extends ChangeNotifier {
 
   Future<void> seek(Duration position) async {
     try {
+      if (_currentSong != null) {
+        final file = File(_currentSong!.rutaArchivo);
+        // Si la ruta cambió o no existe en la fuente original, aseguramos que la fuente de audio coincida
+        if (!file.existsSync()) {
+          debugPrint("⚠️ Archivo no encontrado en la ruta actual al hacer seek, verificando...");
+        }
+      }
       await player.seek(position);
     } catch (e) {
       debugPrint("Error in seek: $e");
@@ -704,11 +855,26 @@ class MusicService extends ChangeNotifier {
     if (index < 0 || index >= _playlist.length) return;
 
     try {
-      await player.seek(Duration.zero, index: index);
-
+      if (_audioSource == null || index >= _audioSource!.length) {
+        await setPlaylist(_playlist, initialIndex: index, context: _context);
+      } else {
+        await player.seek(Duration.zero, index: index);
+      }
+      if (player.volume < 0.05) {
+        await player.setVolume(1.0);
+      }
       await player.play();
     } catch (e) {
-      debugPrint("Error in jumpTo: $e");
+      debugPrint("Error in jumpTo: $e, recargando playlist...");
+      try {
+        await setPlaylist(_playlist, initialIndex: index, context: _context);
+        if (player.volume < 0.05) {
+          await player.setVolume(1.0);
+        }
+        await player.play();
+      } catch (inner) {
+        debugPrint("Error crítico en jumpTo fallback: $inner");
+      }
     }
   }
 
@@ -864,7 +1030,7 @@ class MusicService extends ChangeNotifier {
         tag: MediaItem(
           id: song.id.toString(),
           title: song.titulo,
-          artist: "PlayerApp",
+          artist: "VibePlus",
         ),
       );
 
@@ -875,7 +1041,6 @@ class MusicService extends ChangeNotifier {
     // Actualiza lista interna
     _playlist.add(song);
 
-    notifyListeners();
   }
 }
 
