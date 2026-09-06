@@ -1,49 +1,53 @@
-name: Build iOS App
+﻿name: Build iOS App
 
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch: # Permite ejecutar el build manualmente con un botón en GitHub
+  workflow_dispatch:
 
 jobs:
   build_ios:
     name: Build iOS IPA & App Bundle
-    runs-on: macos-14 # Mac M1/M2 provisto gratuitamente por GitHub
+    runs-on: macos-14
+
+    defaults:
+      run:
+        working-directory: playerapp1
 
     steps:
-      - name: 📥 Clonar repositorio
+      - name: Clonar repositorio
         uses: actions/checkout@v4
 
-      - name: ⚙️ Configurar Java
+      - name: Configurar Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: 🐦 Configurar Flutter
+      - name: Configurar Flutter
         uses: actions/setup-flutter@v3
         with:
           channel: 'stable'
           cache: true
 
-      - name: 📦 Descargar dependencias de Flutter
+      - name: Descargar dependencias de Flutter
         run: flutter pub get
 
-      - name: 🔨 Compilar app para iOS (Release)
+      - name: Compilar app para iOS
         run: flutter build ios --release --no-codesign
 
-      - name: 📦 Empaquetar archivo .IPA
+      - name: Empaquetar archivo .IPA
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r playerapp1-ios.ipa Payload
           zip -r playerapp1-Runner.app.zip build/ios/iphoneos/Runner.app
 
-      - name: 🚀 Subir instalador como artefacto descargable
+      - name: Subir instalador como artefacto descargable
         uses: actions/upload-artifact@v4
         with:
           name: iOS-Build-Package
           path: |
-            playerapp1-ios.ipa
-            playerapp1-Runner.app.zip
+            playerapp1/playerapp1-ios.ipa
+            playerapp1/playerapp1-Runner.app.zip
           retention-days: 14
