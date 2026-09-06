@@ -25,7 +25,7 @@ jobs:
           java-version: '17'
 
       - name: Configurar Flutter
-        uses: actions/setup-flutter@v3
+        uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
@@ -33,7 +33,7 @@ jobs:
       - name: Descargar dependencias de Flutter
         run: flutter pub get
 
-      - name: Compilar app para iOS
+      - name: Compilar app para iOS (Release)
         run: flutter build ios --release --no-codesign
 
       - name: Empaquetar archivo .IPA
